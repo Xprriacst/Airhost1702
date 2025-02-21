@@ -48,6 +48,16 @@ function App() {
           } 
         />
         <Route 
+          path="/chat"
+          element={
+            session ? (
+              <Chat />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route 
           path="/" 
           element={
             session ? (

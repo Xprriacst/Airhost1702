@@ -68,13 +68,18 @@ async function saveMessage(message: any) {
 
     // D'abord créer une conversation si elle n'existe pas
     const phoneNumber = message.from
+    console.log('Recherche de conversation pour le numéro:', phoneNumber)
+    
     let { data: conversation, error: conversationError } = await supabaseClient
       .from('conversations')
-      .select('id')
+      .select('*')
       .eq('guest_phone', phoneNumber)
       .single()
 
+    console.log('Résultat recherche conversation:', { conversation, conversationError })
+
     if (conversationError) {
+      console.log('Création d\'une nouvelle conversation pour:', phoneNumber)
       // Créer une nouvelle conversation
       const { data: newConversation, error: createError } = await supabaseClient
         .from('conversations')
@@ -91,6 +96,7 @@ async function saveMessage(message: any) {
         console.error('Erreur lors de la création de la conversation:', createError)
         return false
       }
+      console.log('Nouvelle conversation créée:', newConversation)
       conversation = newConversation
     }
 
