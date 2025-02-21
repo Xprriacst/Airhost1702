@@ -9,10 +9,20 @@ import {
   Alert,
   Menu,
   MenuItem,
-  Button
+  Button,
+  Tooltip,
+  Divider,
+  ListItemIcon,
+  ListItemText,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
+import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 
 interface Message {
   id: string;
@@ -26,6 +36,8 @@ interface Template {
   namespace: string;
   name: string;
   language: string;
+  description?: string;
+  category?: string;
 }
 
 interface ChatWindowProps {
@@ -44,13 +56,19 @@ export default function ChatWindow({
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  
+const [templateAnchorEl, setTemplateAnchorEl] = useState<null | HTMLElement>(null);
+const [aiAnchorEl, setAiAnchorEl] = useState<null | HTMLElement>(null);
   const [isOutsideWindow, setIsOutsideWindow] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [phoneNumberId, setPhoneNumberId] = useState('');
+  const [whatsappToken, setWhatsappToken] = useState('');
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
 
   useEffect(() => {
     loadMessages();
     loadTemplates();
+    loadWhatsAppConfig();
     checkMessageWindow();
 
     // Souscrire aux nouveaux messages
@@ -133,6 +151,40 @@ export default function ChatWindow({
     }
   };
 
+  const loadWhatsAppConfig = async () => {
+    const { data, error } = await supabase
+      .from('whatsapp_config')
+      .select('phone_number_id, token')
+      .single();
+
+    if (error) {
+      console.error('Erreur lors du chargement de la configuration WhatsApp:', error);
+      return;
+    }
+
+    if (data) {
+      setPhoneNumberId(data.phone_number_id || '');
+      setWhatsappToken(data.token || '');
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    const { error } = await supabase
+      .from('whatsapp_config')
+      .upsert({
+        phone_number_id: phoneNumberId,
+        token: whatsappToken,
+        updated_at: new Date().toISOString()
+      });
+
+    if (error) {
+      console.error('Erreur lors de la sauvegarde de la configuration:', error);
+      return;
+    }
+
+    setConfigOpen(false);
+  };
+
   const handleSendTemplate = async (template: Template) => {
     try {
       const { error } = await supabase.rpc('send_whatsapp_template', {
@@ -160,29 +212,93 @@ export default function ChatWindow({
               {propertyName}
             </Typography>
           </Box>
-          <IconButton onClick={(e) => setAnchorEl(e.currentTarget)}>
-            <MoreVertIcon />
-          </IconButton>
+
         </Box>
       </Paper>
 
       {/* Menu des templates */}
       <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={() => setAnchorEl(null)}
+        anchorEl={templateAnchorEl}
+        open={Boolean(templateAnchorEl)}
+        onClose={() => setTemplateAnchorEl(null)}
       >
         <MenuItem disabled sx={{ opacity: 1 }}>
-          <Typography variant="subtitle2">Templates de message</Typography>
+          <ListItemIcon>
+            <WhatsAppIcon />
+          </ListItemIcon>
+          <ListItemText 
+            primary="Templates WhatsApp"
+            secondary="Sélectionnez un template à envoyer"
+          />
         </MenuItem>
+        <Divider />
         {templates.map((template) => (
           <MenuItem 
             key={template.id}
             onClick={() => handleSendTemplate(template)}
           >
-            {template.namespace}.{template.name}
+            <ListItemText 
+              primary={`${template.name}`}
+              secondary={template.description || `${template.namespace}`}
+            />
           </MenuItem>
         ))}
+      </Menu>
+
+      {/* Dialog de configuration WhatsApp */}
+      <Dialog open={configOpen} onClose={() => setConfigOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Configuration WhatsApp</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+            <TextField
+              label="Phone Number ID"
+              variant="outlined"
+              fullWidth
+              value={phoneNumberId}
+              onChange={(e) => setPhoneNumberId(e.target.value)}
+              placeholder="Entrez votre Phone Number ID WhatsApp"
+            />
+            <TextField
+              label="Token WhatsApp"
+              variant="outlined"
+              fullWidth
+              value={whatsappToken}
+              onChange={(e) => setWhatsappToken(e.target.value)}
+              type="password"
+              placeholder="Entrez votre token WhatsApp"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfigOpen(false)}>Annuler</Button>
+          <Button onClick={handleSaveConfig} variant="contained" color="primary">
+            Enregistrer
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Menu de l'IA */}
+      <Menu
+        anchorEl={aiAnchorEl}
+        open={Boolean(aiAnchorEl)}
+        onClose={() => setAiAnchorEl(null)}
+      >
+        <MenuItem disabled sx={{ opacity: 1 }}>
+          <ListItemIcon>
+            <AutoAwesomeIcon />
+          </ListItemIcon>
+          <ListItemText 
+            primary="Assistant IA"
+            secondary="Générer une réponse automatique"
+          />
+        </MenuItem>
+        <Divider />
+        <MenuItem disabled>
+          <ListItemText 
+            primary="Fonctionnalité à venir"
+            secondary="L'assistant IA sera bientôt disponible"
+          />
+        </MenuItem>
       </Menu>
 
       {/* Messages */}
@@ -244,7 +360,25 @@ export default function ChatWindow({
           La fenêtre de 24h est dépassée. Vous devez utiliser un template.
         </Alert>
       ) : (
-        <Box sx={{ p: 2, display: 'flex', gap: 1 }}>
+        <Box sx={{ p: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+          <Tooltip title="Templates WhatsApp">
+            <IconButton 
+              color="primary" 
+              onClick={(e) => setTemplateAnchorEl(e.currentTarget)}
+              sx={{ flexShrink: 0 }}
+            >
+              <WhatsAppIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Réponse IA">
+            <IconButton 
+              color="primary" 
+              onClick={(e) => setAiAnchorEl(e.currentTarget)}
+              sx={{ flexShrink: 0 }}
+            >
+              <AutoAwesomeIcon />
+            </IconButton>
+          </Tooltip>
           <TextField
             fullWidth
             variant="outlined"
