@@ -94,6 +94,8 @@ export default function Chat() {
     const { data, error } = await supabase
       .from('whatsapp_config')
       .select('phone_number_id, token')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .single();
 
     if (error) {

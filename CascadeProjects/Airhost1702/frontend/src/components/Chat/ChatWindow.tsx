@@ -33,11 +33,12 @@ interface Message {
 
 interface Template {
   id: string;
-  namespace: string;
   name: string;
+  content: string;
   language: string;
+  variables: Record<string, any>;
   description?: string;
-  category?: string;
+  created_at: string;
 }
 
 interface ChatWindowProps {
@@ -155,6 +156,8 @@ const [aiAnchorEl, setAiAnchorEl] = useState<null | HTMLElement>(null);
     const { data, error } = await supabase
       .from('whatsapp_config')
       .select('phone_number_id, token')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .single();
 
     if (error) {
@@ -187,15 +190,79 @@ const [aiAnchorEl, setAiAnchorEl] = useState<null | HTMLElement>(null);
 
   const handleSendTemplate = async (template: Template) => {
     try {
-      const { error } = await supabase.rpc('send_whatsapp_template', {
-        p_conversation_id: conversationId,
-        p_template_namespace: template.namespace,
-        p_template_name: template.name
+      // Récupérer le numéro de téléphone de la conversation
+      const { data: conversation, error: convError } = await supabase
+        .from('conversations')
+        .select('guest_phone')
+        .eq('id', conversationId)
+        .single();
+
+      if (convError || !conversation) {
+        throw new Error('Conversation non trouvée');
+      }
+
+      console.log('Envoi du template:', template);
+
+      // Récupérer la session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) {
+        console.error('Erreur de session:', sessionError);
+        throw new Error('Non authentifié');
+      }
+
+      console.log('Session récupérée:', {
+        token: session.access_token.substring(0, 20) + '...',
+        expires_at: new Date(session.expires_at! * 1000).toISOString()
       });
 
-      if (error) throw error;
+      // Envoyer le template via la fonction Edge
+      const response = await fetch('http://127.0.0.1:54321/functions/v1/send-whatsapp-template', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          template_name: template.name,
+          language: template.language,
+          to: conversation.guest_phone
+        })
+      });
 
-      setAnchorEl(null);
+      let result;
+      try {
+        result = await response.json();
+        console.log('Réponse de la fonction Edge:', {
+          status: response.status,
+          headers: Object.fromEntries(response.headers.entries()),
+          body: result
+        });
+      } catch (e) {
+        console.error('Erreur lors du parsing de la réponse:', e);
+        throw new Error(`Erreur ${response.status}: ${response.statusText}`);
+      }
+
+      if (!response.ok) {
+        const errorMessage = result?.error || 'Erreur lors de l\'envoi du template';
+        console.error('Erreur de la fonction Edge:', errorMessage);
+        throw new Error(errorMessage);
+      }
+
+      // Créer le message dans la base de données
+      const { error: msgError } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: conversationId,
+          content: `Template envoyé: ${template.name}`,
+          direction: 'outbound',
+          type: 'template',
+          status: 'sent'
+        });
+
+      if (msgError) throw msgError;
+
+      setTemplateAnchorEl(null);
     } catch (error) {
       console.error('Erreur lors de l\'envoi du template:', error);
     }
